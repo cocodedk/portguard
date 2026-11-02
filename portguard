@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+# portguard: find TCP ports that another machine could reach past the firewall, deny them, and alert.
+#
+# Run as root (from /etc/cron.d/portguard, every minute). A throwaway network namespace, joined to the
+# host by a veth pair, connects to every TCP listener that is not on loopback. Its packets arrive on a
+# real interface, so ufw and root Docker's port forwarding treat it the way they treat a LAN host.
+# A port that answers gets a drop rule for new inbound connections in portguard's own nftables table,
+# hooked before Docker's forwarding (which skips ufw), plus a syslog alert and a critical desktop
+# notification for every signed-in user.
+#
+# Limits: TCP only. The probe comes from a link-local address on its own interface to the host's
+# probe-facing address, so a ufw rule that allows only certain sources, interfaces or destination
+# addresses is not simulated, and neither is Docker's routed (non-NAT) gateway mode. A listener bound
+# to one interface (IPv6 link-local) is logged, not probed. A denied port stays denied until reboot,
+# or until `nft delete table inet portguard`; after a reboot the next run finds it again.
+set -uo pipefail
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin   # cron gives root a short PATH
+
+# shellcheck disable=SC2034  # identification only
+VERSION=dev                       # stamped from the git tag by the release workflow
+ALLOWED_PORTS=""                  # TCP ports that may stay reachable from the network, space-separated
+NETNS=portguard
+HOST_IF=pg-host
+PROBE_IF=pg-probe
+HOST_V4=169.254.231.1
+PROBE_V4=169.254.231.2
+V4_PREFIX=30
+HOST_V6=fd70:6775:6172::1
+PROBE_V6=fd70:6775:6172::2
+V6_PREFIX=64
+PROBE_TIMEOUT_S=2
+NFT_TABLE=portguard
+NFT_PRIORITY=-300                 # raw: before conntrack (-200) and Docker's port forwarding (-100)
+TAG=portguard
+LOCK=/run/portguard.lock          # root-only (umask 077), so no other user can hold it
+PROBE_OK=0                        # connected
+PROBE_CLOSED=1                    # refused or reset
+PROBE_TIMED_OUT=124               # dropped by a firewall (timeout's status)
+
+cleanup() {
+  ip netns del "$NETNS" 2>/dev/null
+  ip link del "$HOST_IF" 2>/dev/null
+  return 0
+}
+
+setup_probe() {
+  cleanup
+  ip netns add "$NETNS" &&
+    ip link add "$HOST_IF" type veth peer name "$PROBE_IF" netns "$NETNS" &&
+    ip addr add "$HOST_V4/$V4_PREFIX" dev "$HOST_IF" &&
+    ip -6 addr add "$HOST_V6/$V6_PREFIX" dev "$HOST_IF" nodad &&
+    ip link set "$HOST_IF" up &&
+    ip -n "$NETNS" link set lo up &&
+    ip -n "$NETNS" addr add "$PROBE_V4/$V4_PREFIX" dev "$PROBE_IF" &&
+    ip -n "$NETNS" -6 addr add "$PROBE_V6/$V6_PREFIX" dev "$PROBE_IF" nodad &&
+    ip -n "$NETNS" link set "$PROBE_IF" up &&
+    ip -n "$NETNS" route add default via "$HOST_V4" &&
+    ip -n "$NETNS" -6 route add default via "$HOST_V6"
+}
+
+# "<address> <port>" for every TCP listener not bound to loopback in <ss -ltnH output>; brackets and
+# %scope removed. A listener scoped to an interface other than lo is logged, not probed.
+listeners() {
+  awk '{print $4}' <<< "$1" | sort -u | while read -r local; do
+    local port="${local##*:}" addr="${local%:*}" scope=""
+    addr="${addr#[}"; addr="${addr%]}"
+    case "$addr" in *%*) scope="${addr#*%}"; addr="${addr%%%*}" ;; esac
+    case "$addr" in 127.*|::1|::ffff:127.*) continue ;; esac
+    [ "$scope" = lo ] && continue
+    if [ -n "$scope" ]; then logger -t "$TAG" "not probed: $addr%$scope port $port"; continue; fi
+    echo "$addr $port"
+  done
+}
+
+# The addresses to probe for a listener: its own, or the probe-facing host address of each family
+# for a wildcard one.
+targets() {
+  case "$1" in
+    0.0.0.0) echo "$HOST_V4" ;;
+    ::) echo "$HOST_V6 $HOST_V4" ;;
+    \*) echo "$HOST_V4 $HOST_V6" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+allowed() {  # <port>: succeeds when the port is in ALLOWED_PORTS
+  case " $ALLOWED_PORTS " in *" $1 "*) return 0 ;; esac
+  return 1
+}
+
+probe() {  # <address> <port>: PROBE_OK, PROBE_CLOSED or PROBE_TIMED_OUT; any other status is a broken probe
+  # shellcheck disable=SC2016  # $1 and $2 are meant for the inner bash, which gets them as arguments
+  ip netns exec "$NETNS" timeout "$PROBE_TIMEOUT_S" bash -c 'exec 3<>"/dev/tcp/$1/$2"' _ "$1" "$2" 2>/dev/null
+}
+
+deny() {  # <port>: drop new inbound connections to it from every interface except lo, for this host's
+  # own addresses only (`fib daddr type local`), so containers' outbound traffic to that port still flows
+  nft add table inet "$NFT_TABLE" &&
+    nft add chain inet "$NFT_TABLE" prerouting \
+      "{ type filter hook prerouting priority $NFT_PRIORITY; policy accept; }" &&
+    nft add rule inet "$NFT_TABLE" prerouting iifname != lo fib daddr type local tcp dport "$1" \
+      'tcp flags & (syn | ack) == syn' counter drop
+}
+
+alert() {  # <message>: syslog, plus a critical notification on every signed-in user's desktop
+  local bus uid
+  logger -t "$TAG" -p auth.alert "$1"
+  for bus in /run/user/*/bus; do
+    [ -S "$bus" ] || continue
+    uid="$(stat -c %u "$bus")"
+    runuser -u "$(id -nu "$uid")" -- env DBUS_SESSION_BUS_ADDRESS="unix:path=$bus" \
+      XDG_RUNTIME_DIR="${bus%/bus}" notify-send -u critical -a "$TAG" "portguard" "$1" 2>/dev/null
+  done
+}
+
+main() {
+  [ "$(id -u)" -eq 0 ] || { echo "$TAG: run me as root" >&2; exit 1; }
+  umask 077
+  exec 9>"$LOCK" || { echo "$TAG: cannot open $LOCK" >&2; exit 1; }
+  flock -n 9 || exit 0                       # a run is already going
+  trap cleanup EXIT
+  local sockets addr port target status
+  if ! sockets="$(ss -ltnH)" || ! setup_probe; then
+    alert "portguard could not list the listening ports or set up its probe, so no port was checked"
+    exit 1
+  fi
+  while read -r addr port; do
+    allowed "$port" && continue
+    for target in $(targets "$addr"); do
+      probe "$target" "$port"; status=$?
+      case "$status" in
+        "$PROBE_OK") ;;
+        "$PROBE_CLOSED" | "$PROBE_TIMED_OUT") continue ;;
+        *) alert "portguard's probe broke (status $status) at port $port, so the rest was not checked"; exit 1 ;;
+      esac
+      if deny "$port"; then
+        alert "TCP port $port ($addr) was reachable from the network; new connections to it are now dropped"
+      else
+        alert "TCP port $port ($addr) is reachable from the network, and portguard could NOT block it"
+      fi
+      break
+    done
+  done < <(listeners "$sockets")
+}
+
+[ "${BASH_SOURCE[0]}" = "$0" ] && main "$@"

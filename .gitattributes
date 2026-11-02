@@ -1,0 +1,10 @@
+* text=auto eol=lf
+portguard text eol=lf
+*.sh text eol=lf
+*.cron text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.png binary
+*.svg binary
