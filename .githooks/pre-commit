@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+# Fast gate: the tests, and shellcheck when it is installed (CI always runs it).
+tests/run.sh >/dev/null || { echo "pre-commit: tests failed (run tests/run.sh)" >&2; exit 1; }
+if command -v shellcheck >/dev/null 2>&1; then
+  shellcheck -x portguard tests/run.sh scripts/install-hooks.sh .githooks/pre-commit .githooks/commit-msg .githooks/pre-push
+fi
