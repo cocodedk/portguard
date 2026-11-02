@@ -1,0 +1,20 @@
+# portguard
+
+> portguard is a bash script that runs from cron every minute, finds TCP ports a machine on the network could reach past the firewall (ufw often misses root Docker's published ports), and drops them with an nftables rule. Source: https://github.com/cocodedk/portguard
+
+## WebMCP tools
+
+This site declares WebMCP tools with document.modelContext.registerTool. They are available in a browser with WebMCP switched on (Chrome 150 or later, flag enabled). Both pages declare the same five tools:
+
+- Pages: https://portguard.cocode.dk/ (English) and https://portguard.cocode.dk/fa/ (Persian).
+- describe: says what is on the page (language, sections, tools, links).
+- get_install_steps: returns the install commands, the command that undoes a block, and how to keep a port open.
+- list_limits: returns what portguard does not cover.
+- copy_install_command: copies the install commands to the visitor's clipboard and returns them.
+- switch_language: opens the English (en) or Persian (fa) version of the page.
+
+## Pages
+
+- https://portguard.cocode.dk/: English
+- https://portguard.cocode.dk/fa/: Persian
+- https://portguard.cocode.dk/sitemap.xml

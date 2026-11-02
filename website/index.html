@@ -1,0 +1,172 @@
+<!doctype html>
+<!-- SEO keywords:
+     primary:   ufw docker ports bypass
+     secondary: close exposed ports Linux, nftables drop rule, Docker published ports firewall
+     intent:    transactional
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>portguard: close the ports ufw and Docker leave open</title>
+<meta name="description" content="portguard is a bash script for Linux that probes every listening TCP port like a LAN machine would, then drops the ones ufw and Docker leave reachable." />
+<meta name="robots" content="index, follow" />
+<link rel="canonical" href="https://portguard.cocode.dk/" />
+<link rel="alternate" hreflang="en" href="https://portguard.cocode.dk/" />
+<link rel="alternate" hreflang="fa" href="https://portguard.cocode.dk/fa/" />
+<link rel="alternate" hreflang="x-default" href="https://portguard.cocode.dk/" />
+<link rel="icon" type="image/svg+xml" href="favicon.svg" />
+
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="portguard" />
+<meta property="og:title" content="portguard: close the ports ufw and Docker leave open" />
+<meta property="og:description" content="A cron-driven bash script that tests your listening ports from a throwaway network namespace and blocks the ones the firewall let through." />
+<meta property="og:url" content="https://portguard.cocode.dk/" />
+<meta property="og:image" content="https://portguard.cocode.dk/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="portguard: a probe from the LAN reaches port 7777 past ufw, and an nftables drop rule closes it." />
+<meta property="og:locale" content="en_US" />
+<meta property="og:locale:alternate" content="fa_IR" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="portguard: close the ports ufw and Docker leave open" />
+<meta name="twitter:description" content="A cron-driven bash script that tests your listening ports from a throwaway network namespace and blocks the ones the firewall let through." />
+<meta name="twitter:image" content="https://portguard.cocode.dk/og.png" />
+<meta name="twitter:image:alt" content="portguard: a probe from the LAN reaches port 7777 past ufw, and an nftables drop rule closes it." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;600;700&amp;display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "portguard",
+  "description": "A bash script that runs from cron, probes listening TCP ports from a throwaway network namespace and drops the ones reachable past the firewall with nftables.",
+  "url": "https://portguard.cocode.dk/",
+  "downloadUrl": "https://github.com/cocodedk/portguard/releases",
+  "applicationCategory": "SecurityApplication",
+  "operatingSystem": "Linux",
+  "license": "https://www.apache.org/licenses/LICENSE-2.0",
+  "inLanguage": ["en", "fa"],
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "author": {
+    "@type": "Person",
+    "name": "Babak Bandpey",
+    "url": "https://cocode.dk",
+    "sameAs": ["https://linkedin.com/in/babakbandpey", "https://github.com/cocodedk"]
+  },
+  "codeRepository": "https://github.com/cocodedk/portguard"
+}
+</script>
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="./">portguard</a>
+    <nav class="site-nav" aria-label="Main">
+      <a href="#why">Why ufw misses ports</a>
+      <a href="#how">How it works</a>
+      <a href="#install">Install</a>
+      <a href="#limits">Limits</a>
+      <a href="https://github.com/cocodedk/portguard" target="_blank" rel="noreferrer">GitHub</a>
+    </nav>
+    <a href="fa/" class="lang-switch" hreflang="fa" lang="fa">فارسی</a>
+  </div>
+</header>
+
+<main>
+  <section class="wrap hero" id="top">
+    <div>
+      <h1>Close the ports ufw doesn't cover</h1>
+      <p class="lede">portguard is a bash script that runs from cron every minute. It connects to each listening TCP port the way another machine on your network would, and blocks every port that answers.</p>
+      <div class="actions">
+        <a class="btn primary" href="https://github.com/cocodedk/portguard/releases/latest" target="_blank" rel="noreferrer">Download the latest release</a>
+        <button class="btn" type="button" data-copy-install data-done="Copied" data-fail="Copy blocked: select the commands below">Copy install commands</button>
+        <span class="copy-status" role="status" data-copy-status></span>
+      </div>
+    </div>
+    <figure class="diagram">
+      <svg viewBox="0 0 360 380" role="img" aria-labelledby="dg-title">
+        <title id="dg-title">A machine on the LAN reaches Docker's published port 7777 through a gap in ufw; a portguard drop rule then closes the gap.</title>
+        <rect class="box" x="80" y="8" width="200" height="56" rx="8"/>
+        <text x="180" y="30" text-anchor="middle">A machine on the LAN</text>
+        <text class="code muted" x="180" y="50" text-anchor="middle">192.0.2.50</text>
+        <line class="line" x1="16" y1="190" x2="148" y2="190"/>
+        <line class="line" x1="212" y1="190" x2="344" y2="190"/>
+        <text x="82" y="176" text-anchor="middle">ufw</text>
+        <text class="muted" x="278" y="176" text-anchor="middle">7777 skips ufw</text>
+        <line class="flow" x1="180" y1="70" x2="180" y2="282"/>
+        <polygon class="head" points="171,282 189,282 180,296"/>
+        <text x="180" y="112" text-anchor="middle">portguard probes like this</text>
+        <rect class="plug" x="144" y="184" width="72" height="12" rx="3"/>
+        <text class="code drop plug-label" x="180" y="222" text-anchor="middle">nft drop</text>
+        <rect class="box" x="60" y="304" width="240" height="64" rx="8"/>
+        <text x="180" y="328" text-anchor="middle">Docker container</text>
+        <text class="code muted" x="180" y="350" text-anchor="middle">published port 7777</text>
+      </svg>
+      <figcaption>ufw shows no rule for port 7777, yet the probe gets in. portguard adds the missing rule.</figcaption>
+    </figure>
+  </section>
+
+  <section class="wrap block" id="why">
+    <h2>Why ufw misses them</h2>
+    <div class="body">
+      <p>Docker running as root publishes a port through its own firewall rules, and traffic on those rules skips ufw. A port can be reachable from the network while <code>ufw status</code> lists nothing for it.</p>
+      <p>Reading rules does not settle whether a port is reachable, so portguard does not read them. It opens a real connection from a separate network namespace and goes by whether the port answers.</p>
+    </div>
+  </section>
+
+  <section class="wrap block" id="how">
+    <h2>What runs every minute</h2>
+    <div class="body">
+      <ol class="steps">
+        <li><span class="n" aria-hidden="true">1</span><span>Lists the TCP ports with a listener on the host.</span></li>
+        <li><span class="n" aria-hidden="true">2</span><span>Probes each one from a throwaway network namespace, so the firewall treats the probe as a LAN host.</span></li>
+        <li><span class="n" aria-hidden="true">3</span><span>Adds an nftables drop rule for new inbound connections to every port that answered.</span></li>
+        <li><span class="n" aria-hidden="true">4</span><span>Writes a syslog alert and sends a critical desktop notification for each port it blocked.</span></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="wrap block" id="install">
+    <h2>Install</h2>
+    <div class="body">
+      <p>Download <code>portguard</code> and <code>portguard.cron</code> from the <a href="https://github.com/cocodedk/portguard/releases" target="_blank" rel="noreferrer">releases page</a>, then copy them into place as root. Set <code>ALLOWED_PORTS</code> before the cron job goes in: the default list is empty, so the first run would block every reachable port, including SSH.</p>
+<pre id="install-cmds" tabindex="0"><span class="c"># the script: 0755, owned by root</span>
+sudo install -m 0755 -o root -g root portguard /usr/local/sbin/portguard
+sudoedit /usr/local/sbin/portguard   <span class="c"># set ALLOWED_PORTS first, e.g. "22" for SSH: an empty list blocks SSH too</span>
+<span class="c"># the cron job: 0644, owned by root</span>
+sudo install -m 0644 -o root -g root portguard.cron /etc/cron.d/portguard</pre>
+      <p>To undo a block, delete the table portguard created:</p>
+<pre id="undo-cmd" tabindex="0">sudo nft delete table inet portguard</pre>
+      <p id="keep-open">To keep a port open on purpose, add its number to <code>ALLOWED_PORTS</code> in <code>/usr/local/sbin/portguard</code>. This does not reopen a port portguard already blocked: delete the table first. That clears all blocks, and the next run blocks the others again.</p>
+    </div>
+  </section>
+
+  <section class="wrap block" id="limits">
+    <h2>What it does not cover</h2>
+    <div class="body">
+      <ul class="limits" id="limits-list">
+        <li>TCP only. UDP listeners are not probed.</li>
+        <li>ufw rules that allow only certain source networks, interfaces or destination addresses are not simulated.</li>
+        <li>Docker's routed gateway mode is not simulated.</li>
+        <li>IPv6 must be enabled on the host: the probe adds an IPv6 address, and if that fails the run alerts and checks no port at all.</li>
+        <li>A listener bound to a single interface (IPv4 or IPv6, for example <code>SO_BINDTODEVICE</code> or a <code>%eth0</code> scope) is logged, not probed.</li>
+        <li>A port that is already blocked stays blocked when you add it to <code>ALLOWED_PORTS</code>; delete the table to clear all blocks.</li>
+      </ul>
+      <p style="margin-top:1.25rem">Licensed under <a href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank" rel="noreferrer">Apache-2.0</a>. To report a security problem, write to <a href="mailto:bb@cocode.dk">bb@cocode.dk</a>.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+  <p>© 2026 <a href="https://cocode.dk" target="_blank" rel="noreferrer">Cocode</a> &nbsp;|&nbsp; Created by <a href="https://linkedin.com/in/babakbandpey" target="_blank" rel="noreferrer">Babak Bandpey</a></p>
+  </div>
+</footer>
+<script type="module" src="site.js"></script>
+</body>
+</html>

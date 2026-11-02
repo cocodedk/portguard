@@ -1,0 +1,172 @@
+<!doctype html>
+<!-- SEO keywords:
+     primary:   دور زدن ufw توسط docker
+     secondary: بستن پورت‌های باز لینوکس, قانون drop در nftables, پورت‌های منتشرشده Docker
+     intent:    transactional
+-->
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>portguard: بستن پورت‌هایی که ufw و Docker باز می‌گذارند</title>
+<meta name="description" content="portguard یک اسکریپت bash برای لینوکس است که هر پورت TCP در حال گوش‌دادن را مثل یک ماشین شبکه آزمایش می‌کند و پورت‌های بازمانده از ufw و Docker را می‌بندد." />
+<meta name="robots" content="index, follow" />
+<link rel="canonical" href="https://portguard.cocode.dk/fa/" />
+<link rel="alternate" hreflang="en" href="https://portguard.cocode.dk/" />
+<link rel="alternate" hreflang="fa" href="https://portguard.cocode.dk/fa/" />
+<link rel="alternate" hreflang="x-default" href="https://portguard.cocode.dk/" />
+<link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="portguard" />
+<meta property="og:title" content="portguard: بستن پورت‌هایی که ufw و Docker باز می‌گذارند" />
+<meta property="og:description" content="اسکریپت bash که با cron اجرا می‌شود، پورت‌های در حال گوش‌دادن را از یک network namespace موقت آزمایش می‌کند و پورت‌های بازمانده از فایروال را می‌بندد." />
+<meta property="og:url" content="https://portguard.cocode.dk/fa/" />
+<meta property="og:image" content="https://portguard.cocode.dk/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="portguard: یک آزمایش از شبکه محلی بدون گذر از ufw به پورت 7777 می‌رسد و یک قانون drop در nftables آن را می‌بندد." />
+<meta property="og:locale" content="fa_IR" />
+<meta property="og:locale:alternate" content="en_US" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="portguard: بستن پورت‌هایی که ufw و Docker باز می‌گذارند" />
+<meta name="twitter:description" content="اسکریپت bash که با cron اجرا می‌شود، پورت‌های در حال گوش‌دادن را از یک network namespace موقت آزمایش می‌کند و پورت‌های بازمانده از فایروال را می‌بندد." />
+<meta name="twitter:image" content="https://portguard.cocode.dk/og.png" />
+<meta name="twitter:image:alt" content="portguard: یک آزمایش از شبکه محلی بدون گذر از ufw به پورت 7777 می‌رسد و یک قانون drop در nftables آن را می‌بندد." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;600;700&amp;family=Vazirmatn:wght@400;600;700&amp;display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="../styles.css" />
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "portguard",
+  "description": "اسکریپت bash که با cron اجرا می‌شود، پورت‌های TCP در حال گوش‌دادن را از یک network namespace موقت آزمایش می‌کند و پورت‌های بازمانده از فایروال را با nftables می‌بندد.",
+  "url": "https://portguard.cocode.dk/fa/",
+  "downloadUrl": "https://github.com/cocodedk/portguard/releases",
+  "applicationCategory": "SecurityApplication",
+  "operatingSystem": "Linux",
+  "license": "https://www.apache.org/licenses/LICENSE-2.0",
+  "inLanguage": "fa",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "author": {
+    "@type": "Person",
+    "name": "Babak Bandpey",
+    "url": "https://cocode.dk",
+    "sameAs": ["https://linkedin.com/in/babakbandpey", "https://github.com/cocodedk"]
+  },
+  "codeRepository": "https://github.com/cocodedk/portguard"
+}
+</script>
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="./">portguard</a>
+    <nav class="site-nav" aria-label="منوی اصلی">
+      <a href="#why">چرا ufw پورت‌ها را از قلم می‌اندازد</a>
+      <a href="#how">روش کار</a>
+      <a href="#install">نصب</a>
+      <a href="#limits">محدودیت‌ها</a>
+      <a href="https://github.com/cocodedk/portguard" target="_blank" rel="noreferrer">GitHub</a>
+    </nav>
+    <a href="../" class="lang-switch" hreflang="en" lang="en">English</a>
+  </div>
+</header>
+
+<main>
+  <section class="wrap hero" id="top">
+    <div>
+      <h1>پورت‌هایی را ببندید که ufw پوشش نمی‌دهد</h1>
+      <p class="lede">portguard یک اسکریپت bash است که هر دقیقه با cron اجرا می‌شود. به هر پورت TCP در حال گوش‌دادن همان‌طور وصل می‌شود که یک ماشین دیگر در شبکه وصل می‌شد، و هر پورتی را که جواب بدهد می‌بندد.</p>
+      <div class="actions">
+        <a class="btn primary" href="https://github.com/cocodedk/portguard/releases/latest" target="_blank" rel="noreferrer">دانلود آخرین نسخه</a>
+        <button class="btn" type="button" data-copy-install data-done="کپی شد" data-fail="کپی مسدود شد: دستورها را از پایین انتخاب کنید">کپی دستورهای نصب</button>
+        <span class="copy-status" role="status" data-copy-status></span>
+      </div>
+    </div>
+    <figure class="diagram">
+      <svg viewBox="0 0 360 380" role="img" aria-labelledby="dg-title">
+        <title id="dg-title">یک ماشین در شبکه محلی از شکاف ufw به پورت منتشرشده 7777 در Docker می‌رسد؛ سپس یک قانون drop از portguard شکاف را می‌بندد.</title>
+        <rect class="box" x="80" y="8" width="200" height="56" rx="8"/>
+        <text x="180" y="30" text-anchor="middle">یک ماشین در شبکه محلی</text>
+        <text class="code muted" x="180" y="50" text-anchor="middle">192.0.2.50</text>
+        <line class="line" x1="16" y1="190" x2="148" y2="190"/>
+        <line class="line" x1="212" y1="190" x2="344" y2="190"/>
+        <text x="82" y="176" text-anchor="middle">ufw</text>
+        <text class="muted" x="278" y="176" text-anchor="middle">7777 از ufw رد می‌شود</text>
+        <line class="flow" x1="180" y1="70" x2="180" y2="282"/>
+        <polygon class="head" points="171,282 189,282 180,296"/>
+        <text x="180" y="112" text-anchor="middle">portguard همین‌طور آزمایش می‌کند</text>
+        <rect class="plug" x="144" y="184" width="72" height="12" rx="3"/>
+        <text class="code drop plug-label" x="180" y="222" text-anchor="middle">nft drop</text>
+        <rect class="box" x="60" y="304" width="240" height="64" rx="8"/>
+        <text x="180" y="328" text-anchor="middle">کانتینر Docker</text>
+        <text class="muted" x="180" y="350" text-anchor="middle">پورت منتشرشده 7777</text>
+      </svg>
+      <figcaption>ufw برای پورت 7777 هیچ قانونی نشان نمی‌دهد، ولی آزمایش به آن می‌رسد. portguard قانون جاافتاده را اضافه می‌کند.</figcaption>
+    </figure>
+  </section>
+
+  <section class="wrap block" id="why">
+    <h2>چرا ufw پورت‌ها را از قلم می‌اندازد</h2>
+    <div class="body">
+      <p>Docker وقتی با دسترسی root اجرا شود، پورت را با قانون‌های فایروال خودش منتشر می‌کند و ترافیک آن قانون‌ها از ufw رد می‌شود. ممکن است پورتی از شبکه در دسترس باشد در حالی که <code>ufw status</code> چیزی برایش نشان نمی‌دهد.</p>
+      <p>خواندن قانون‌ها نشان نمی‌دهد پورتی واقعاً در دسترس است یا نه، برای همین portguard آن‌ها را نمی‌خواند. از یک network namespace جداگانه واقعاً وصل می‌شود و فقط به پاسخ پورت نگاه می‌کند.</p>
+    </div>
+  </section>
+
+  <section class="wrap block" id="how">
+    <h2>هر دقیقه چه اتفاقی می‌افتد</h2>
+    <div class="body">
+      <ol class="steps">
+        <li><span class="n" aria-hidden="true">۱</span><span>پورت‌های TCP را که روی ماشین گوش می‌دهند فهرست می‌کند.</span></li>
+        <li><span class="n" aria-hidden="true">۲</span><span>هر کدام را از یک network namespace موقت آزمایش می‌کند، پس فایروال آزمایش را یک ماشین شبکه محلی می‌بیند.</span></li>
+        <li><span class="n" aria-hidden="true">۳</span><span>برای هر پورتی که جواب داد، یک قانون drop در nftables برای اتصال‌های ورودی تازه می‌گذارد.</span></li>
+        <li><span class="n" aria-hidden="true">۴</span><span>برای هر پورت بسته‌شده یک هشدار syslog می‌نویسد و یک اعلان حیاتی روی دسکتاپ نشان می‌دهد.</span></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="wrap block" id="install">
+    <h2>نصب</h2>
+    <div class="body">
+      <p>فایل‌های <code>portguard</code> و <code>portguard.cron</code> را از <a href="https://github.com/cocodedk/portguard/releases" target="_blank" rel="noreferrer">صفحه نسخه‌ها</a> بگیرید و با دسترسی root سر جایشان بگذارید. پیش از نصب کار cron، مقدار <code>ALLOWED_PORTS</code> را تنظیم کنید: فهرست پیش‌فرض خالی است و اولین اجرا همهٔ پورت‌های در دسترس، از جمله SSH، را می‌بندد.</p>
+<pre id="install-cmds" tabindex="0"><span class="c"># the script: 0755, owned by root</span>
+sudo install -m 0755 -o root -g root portguard /usr/local/sbin/portguard
+sudoedit /usr/local/sbin/portguard   <span class="c"># set ALLOWED_PORTS first, e.g. "22" for SSH: an empty list blocks SSH too</span>
+<span class="c"># the cron job: 0644, owned by root</span>
+sudo install -m 0644 -o root -g root portguard.cron /etc/cron.d/portguard</pre>
+      <p>برای برداشتن یک مسدودسازی، جدولی را که portguard ساخته پاک کنید:</p>
+<pre id="undo-cmd" tabindex="0">sudo nft delete table inet portguard</pre>
+      <p id="keep-open">برای اینکه عمداً پورتی باز بماند، شماره‌اش را به <code>ALLOWED_PORTS</code> در <code>/usr/local/sbin/portguard</code> اضافه کنید. این کار پورتی را که portguard پیش‌تر بسته است دوباره باز نمی‌کند: ابتدا جدول را پاک کنید. با این کار همهٔ مسدودسازی‌ها برداشته می‌شود و اجرای بعدی بقیه را دوباره می‌بندد.</p>
+    </div>
+  </section>
+
+  <section class="wrap block" id="limits">
+    <h2>چه چیزهایی را پوشش نمی‌دهد</h2>
+    <div class="body">
+      <ul class="limits" id="limits-list">
+        <li>فقط پروتکل TCP پوشش داده می‌شود و شنونده‌های UDP آزمایش نمی‌شوند.</li>
+        <li>قانون‌های ufw که فقط به شبکه‌های مبدأ، رابط‌ها یا نشانی‌های مقصد مشخصی اجازه می‌دهند شبیه‌سازی نمی‌شوند.</li>
+        <li>حالت مسیریابی (routed gateway) در Docker شبیه‌سازی نمی‌شود.</li>
+        <li>IPv6 باید روی میزبان فعال باشد: آزمایش یک نشانی IPv6 اضافه می‌کند و اگر این کار شکست بخورد، اجرا هشدار می‌دهد و هیچ پورتی را بررسی نمی‌کند.</li>
+        <li>شنونده‌ای که به یک رابط واحد وصل شده باشد (IPv4 یا IPv6، مثلاً با <code>SO_BINDTODEVICE</code> یا دامنهٔ <code>%eth0</code>) فقط ثبت می‌شود و آزمایش نمی‌شود.</li>
+        <li>پورتی که از قبل بسته شده، با افزودن به <code>ALLOWED_PORTS</code> باز نمی‌شود؛ برای برداشتن همهٔ مسدودسازی‌ها جدول را پاک کنید.</li>
+      </ul>
+      <p style="margin-top:1.25rem">این پروژه با پروانه <a href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank" rel="noreferrer">Apache-2.0</a> منتشر شده است. برای گزارش مشکل امنیتی به <a href="mailto:bb@cocode.dk">bb@cocode.dk</a> نامه بنویسید.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+  <p>© ۱۴۰۵ <a href="https://cocode.dk" target="_blank" rel="noreferrer">Cocode</a> &nbsp;|&nbsp; ساخته شده توسط <a href="https://linkedin.com/in/babakbandpey" target="_blank" rel="noreferrer">بابک بندپی</a></p>
+  </div>
+</footer>
+<script type="module" src="../site.js"></script>
+</body>
+</html>
