@@ -11,7 +11,7 @@
 # Limits: TCP only. The probe comes from a link-local address on its own interface to the host's
 # probe-facing address, so a ufw rule that allows only certain sources, interfaces or destination
 # addresses is not simulated, and neither is Docker's routed (non-NAT) gateway mode. A listener bound
-# to one interface (IPv6 link-local) is logged, not probed. A denied port stays denied until reboot,
+# to a single interface (IPv4 or IPv6) is logged, not probed. A denied port stays denied until reboot,
 # or until `nft delete table inet portguard`; after a reboot the next run finds it again.
 set -uo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin   # cron gives root a short PATH

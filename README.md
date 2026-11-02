@@ -24,8 +24,11 @@ ufw is often trusted as "the" firewall. But Docker run as root publishes ports w
 
 ```sh
 sudo install -m 0755 -o root -g root portguard /usr/local/sbin/portguard
+sudoedit /usr/local/sbin/portguard   # set ALLOWED_PORTS, e.g. "22" for SSH, before the next line
 sudo install -m 0644 -o root -g root portguard.cron /etc/cron.d/portguard
 ```
+
+Set `ALLOWED_PORTS` before installing the cron file: the default list is empty, so the first run would block every reachable port, including SSH.
 
 Releases carry `portguard`, `portguard.cron` and `SHA256SUMS`, with a provenance attestation (`gh attestation verify portguard --repo cocodedk/portguard`).
 
@@ -51,7 +54,7 @@ A denied port stays denied until reboot, or until you delete the table:
 sudo nft delete table inet portguard
 ```
 
-After a reboot, or if the port is still reachable, the next run finds it again. To keep a port reachable on purpose, list it in `ALLOWED_PORTS`.
+After a reboot, or if the port is still reachable, the next run finds it again. Adding a port to `ALLOWED_PORTS` does not reopen a port that is already blocked; delete the table first.
 
 ## ALLOWED_PORTS
 
@@ -61,14 +64,15 @@ Near the top of `portguard`:
 ALLOWED_PORTS="22 7777"   # TCP ports that may stay reachable from the network, space-separated
 ```
 
-Listed ports are not probed and never blocked.
+Listed ports are not probed, so portguard does not block them. A port it already blocked stays blocked until you delete the table.
 
 ## Limits
 
 - TCP only.
 - The probe comes from a link-local address on its own interface to the host's probe-facing address. A ufw rule that allows only certain sources, interfaces or destination addresses is not simulated, and neither is Docker's routed (non-NAT) gateway mode.
-- A listener bound to one interface (IPv6 link-local) is logged, not probed.
-- A denied port stays denied until reboot, or until `nft delete table inet portguard`.
+- IPv6 must be enabled on the host: the probe's setup adds an IPv6 address, and if that fails the run alerts and checks no port at all.
+- A listener bound to a single interface (IPv4 or IPv6, for example `SO_BINDTODEVICE` or a `%eth0` scope) is logged, not probed.
+- A denied port stays denied until reboot, or until `nft delete table inet portguard`, which clears all blocks (the next run blocks the others again). Adding it to `ALLOWED_PORTS` does not reopen it.
 
 ## Tests
 
